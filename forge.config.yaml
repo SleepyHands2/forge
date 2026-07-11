@@ -1,0 +1,307 @@
+forge:
+  name: forge-local
+  version: "0.1.0"
+  root: .
+
+user:
+  name: your-name
+
+llm:
+  provider: ollama
+  # Any locally pulled chat model works; tuned here for a gemma4:e4b variant.
+  model: gemma4:e4b
+  # Ollama server env knobs for this box (8 GB GPU, e.g. RTX 2060 SUPER).
+  # Set these in the environment Ollama runs under, not in this file:
+  #   OLLAMA_FLASH_ATTENTION=1   - enables flash attention (prerequisite for KV quantization)
+  #   OLLAMA_KV_CACHE_TYPE=q8_0  - q8_0 KV cache, roughly halves KV VRAM at negligible quality cost
+  # Rule: keep everything in VRAM. After a chat, run `ollama ps` - the model must
+  # show 100% GPU. Any CPU share means the KV cache spilled; lower num_ctx until it fits.
+  ollama:
+    base_url: http://localhost:11434
+    keep_alive: 10m
+    options:
+      # Gemma 4 sampling guidance: temperature 1.0, top_k 64, top_p 0.95.
+      temperature: 1.0
+      top_k: 64
+      top_p: 0.95
+      # 8192 fits gemma4:e4b weights + KV cache in 8 GB VRAM with the default
+      # f16 KV cache. Path to 16384: set OLLAMA_FLASH_ATTENTION=1 and
+      # OLLAMA_KV_CACHE_TYPE=q8_0 (above), raise num_ctx to 16384, then verify
+      # `ollama ps` still reports 100% GPU.
+      num_ctx: 8192
+      num_predict: 1024
+  # Optional cloud fallback, used only when local Ollama fails. Default off:
+  # the default path is 100% local. The API key is read from the environment
+  # variable named by api_key_env and never lives in this file.
+  fallback:
+    enabled: false
+    provider: openai-compatible
+    base_url: https://api.openai.com/v1
+    # model: <cloud-model>            # required when enabled
+    api_key_env: FORGE_FALLBACK_API_KEY
+
+paths:
+  dbs: ./dbs
+  identity: ./identity
+  logs: ./logs
+  # Generated images (gitignored runtime output).
+  images: ./images
+
+services:
+  web:
+    host: 127.0.0.1
+    port: 6800
+    context_window_tokens: 80000
+    debug_prompt_context: false
+
+memory:
+  retention_days: 30
+  # Embeddings are optional. Disabled keeps the existing local FTS-only recall.
+  embeddings:
+    enabled: true
+    # Set an embedding-capable model you have pulled locally before enabling.
+    model: nomic-embed-text
+    request_timeout_ms: 10000
+    backfill_batch_size: 16
+  # Automatic memory capture: after each reply, an async pass extracts durable
+  # facts, dedupes them against existing memories (embedding index + exact
+  # match), and saves them tagged 'auto'. Review and prune them in the web
+  # UI's Memory tab. /remember and /forget remain as manual overrides.
+  auto:
+    enabled: true
+    # Max memories extracted from a single turn.
+    max_per_turn: 3
+    # Cosine similarity treated as "already known" (embedding dedupe).
+    dedupe_similarity: 0.92
+  # Rolling conversation summary: when older turns fall out of the sliding
+  # context window, an async pass after the reply folds them into a compact
+  # per-conversation digest (stored in messages.db) that is injected back into
+  # the system context on later turns. Never blocks or fails a chat reply.
+  summary:
+    enabled: true
+    # Hard cap on the stored/injected summary text (characters).
+    max_chars: 1200
+    # Max fallen-out messages folded into the summary per background pass.
+    batch_messages: 40
+  # Nightly memory hygiene: supersede near-duplicate auto-captured memories
+  # (keeping the newer of each pair) and archive auto memories that were never
+  # retrieved within retention_days. Manual memories (not tagged 'auto') are
+  # NEVER touched. Runs appear in the Activity tab (scheduler_runs).
+  consolidation:
+    enabled: true
+    # Cosine similarity at or above which two memories count as duplicates.
+    dedupe_similarity: 0.95
+    # Minimum days between consolidation passes.
+    interval_days: 1
+
+identity:
+  reflection:
+    enabled: true
+    # How often identity reflection runs after assistant replies when enabled.
+    # 1 = every assistant reply; 2 = every second assistant reply.
+    cadence_turns: 1
+    # Number of recent low-trust notes from identity/NOTES.md included in the
+    # reflection prompt so the model can avoid duplicates and use recent context.
+    recent_notes_in_context: 5
+  budget:
+    # Identity's maximum share of the prompt token budget (context window minus
+    # response reserve). When identity files exceed the share they are truncated
+    # lowest-priority-first (SOUL > IDENTITY > USER > NOTES > other .md files)
+    # instead of overflowing the window and blocking chat.
+    share: 0.35
+  notes_maintenance:
+    # Scheduled three-way sort of identity/NOTES.md once it outgrows max_bytes:
+    # durable directives become pending IDENTITY.md proposals (you approve in
+    # the Identity tab), episodic notes are archived to the memory store
+    # (tagged 'identity-note', searchable via memory_search), and the newest
+    # notes stay in NOTES.md with a pointer line to the archive. Notes leave
+    # NOTES.md only after their archive copy is saved. Runs appear in the
+    # Activity tab (scheduler_runs, job 'identity_notes').
+    enabled: true
+    interval_days: 1
+    max_bytes: 6144
+    keep_recent: 4
+    max_promotions: 2
+
+# --- Tool system ---------------------------------------------------------------
+# Safe tool system: explicit permissions, logs, and user control.
+# Everything defaults OFF. A tool runs only when `enabled` is true AND its
+# permission level is switched on. Every call (allowed or denied) is logged to
+# dbs/tools.db.
+tools:
+  enabled: false
+  # Max model->tools->model round trips per chat turn.
+  max_iterations: 5
+  levels:
+    safe: false        # read-only, local, no side effects
+    network: false     # local network lookups
+    filesystem: false  # file access, additionally bound by the allowlist below
+    sensitive: false   # anything with real side effects
+  filesystem:
+    # Absolute or forge-root-relative directories tools may read/write.
+    # Empty lists deny all paths even when the filesystem level is on.
+    # read_file / list_dir are read-only and use readable_dirs; writable_dirs
+    # is reserved for a future write tool. Use single quotes for Windows
+    # paths (double quotes mangle backslashes).
+    readable_dirs: []
+    writable_dirs: []
+    # Byte cap on a single read_file result (default 262144 = 256 KiB).
+    # max_read_bytes: 262144
+
+# --- Document RAG ---------------------------------------------------------------
+# Uploaded documents (pdf/md/txt/csv) are chunked and embedded locally with the
+# memory.embeddings model, then relevant excerpts are retrieved into chat
+# context as clearly separated, untrusted reference material. Requires
+# memory.embeddings.enabled. Inert until documents are uploaded via the web
+# UI's Docs tab.
+rag:
+  enabled: true
+  # Target chunk size and overlap, in estimated tokens.
+  chunk_tokens: 400
+  chunk_overlap_tokens: 50
+  # Retrieval: candidate chunks per query and minimum cosine similarity.
+  top_k: 4
+  min_similarity: 0.35
+  # Hard cap on injected chunk tokens; sized for num_ctx 8192 on an 8 GB GPU.
+  max_context_tokens: 1500
+
+# --- Web tools (web_search / fetch_url) -----------------------------------------
+# Connection settings for the network-level tools. The tools only run when
+# tools.enabled AND tools.levels.network are both true above. web_search talks
+# only to this SearXNG instance; no query leaves the machine except SearXNG's
+# own upstream calls. See README "Local Web Search (SearXNG)" for docker setup.
+search:
+  searxng_url: http://localhost:8888
+  results: 5
+  timeout_ms: 8000
+  # Cap on readable text returned by fetch_url (characters).
+  fetch_max_chars: 8000
+
+# --- Voice I/O -------------------------------------------------------------------
+# Local CPU speech: whisper.cpp for speech-to-text, Piper for text-to-speech.
+# Both run as subprocesses with ~0 VRAM cost alongside E4B. Missing binaries
+# fail gracefully with a clear message. See README "Local Voice I/O".
+voice:
+  stt:
+    enabled: false
+    # 'whisper-cpp' (default, reliable) or 'native' (audio goes straight to
+    # the chat model; Gemma 4 E4B accepts audio natively).
+    engine: whisper-cpp
+    # Path to the whisper.cpp CLI binary, or a name on PATH.
+    binary: whisper-cli
+    # Path to a ggml whisper model, e.g. C:\models\ggml-base.en.bin
+    model: ""
+    language: auto
+    timeout_ms: 60000
+  tts:
+    enabled: false
+    # Path to the piper binary, or a name on PATH.
+    binary: piper
+    # Path to a Piper voice, e.g. C:\models\en_US-lessac-medium.onnx
+    model: ""
+    timeout_ms: 30000
+    max_chars: 2000
+
+# --- Image generation (generate_image tool) -------------------------------------
+# THE one feature that fights the 8 GB budget: SD and E4B are never
+# co-resident. The tool runs on demand — free_vram asks Ollama to unload the
+# chat model first, the backend loads SD, and Ollama reloads E4B on the next
+# reply (so the first image after idle AND the first reply after an image are
+# slower). Requires a local A1111-compatible backend (SD WebUI with --api,
+# SD.Next, Forge webui) running SD 1.5 or SDXL-Turbo with low-VRAM flags.
+# Also gated by tools.enabled + tools.levels.network.
+imagegen:
+  enabled: false
+  backend: a1111
+  base_url: http://localhost:7860
+  timeout_ms: 180000
+  # Small-VRAM-friendly defaults; the model may request up to max_size/max_steps.
+  width: 512
+  height: 512
+  steps: 20
+  max_size: 1024
+  max_steps: 50
+  free_vram: true
+
+# --- Vision -----------------------------------------------------------------------
+# On-demand image analysis (analyze_image tool) with a dedicated vision model
+# on the same Ollama server. Ollama swaps models in and out of VRAM by itself,
+# so the first analysis after chatting is slower (model load). Image paths are
+# bound by the tools.filesystem.readable_dirs allowlist, so this is also gated
+# by tools.enabled + tools.levels.filesystem + a non-empty allowlist.
+vision:
+  enabled: false
+  # Any vision-capable Ollama model tag. The chat model is never used for
+  # vision even if its card claims the capability.
+  model: qwen2.5vl:7b
+  # Modest context keeps a 7b vision model mostly on an 8 GB GPU.
+  num_ctx: 8192
+  # Output cap + repeat penalty: guards against runaway repetition loops on
+  # images dense with repeated glyphs (e.g. manga sound effects).
+  num_predict: 700
+  repeat_penalty: 1.15
+  # Dense images take ~3 minutes on an 8 GB card including the model swap.
+  timeout_ms: 300000
+  # Largest accepted image file, in bytes (10 MiB).
+  max_image_bytes: 10485760
+
+# --- Backups ----------------------------------------------------------------------
+# Scheduled local backups: every SQLite database (live-safe online copy) plus
+# the identity directory land in a dated folder under `dir`. Local-only —
+# nothing leaves the machine — and the output directory is gitignored. This
+# protects the data that makes your companion yours: memories, messages,
+# documents, audit logs, and identity files. Runs appear in the Activity tab.
+backup:
+  enabled: true
+  # Days between backups.
+  interval_days: 7
+  # Backups to retain; older ones are pruned after each run.
+  keep: 8
+  # Destination, relative to the forge root.
+  dir: ./backups
+
+# --- Channels ---------------------------------------------------------------------
+# Message transports beyond the web UI. Every channel feeds the exact same
+# chat pipeline (identity, memories, RAG, tools, auto-capture).
+channels:
+  # Telegram bridge via the Bot API (long polling; no public URL needed).
+  # Create a bot with @BotFather, put the token in the FORGE_TELEGRAM_TOKEN
+  # environment variable (or .env), and allowlist your chat id below — the
+  # bot tells you the id on first contact. See README "Telegram Bridge".
+  telegram:
+    enabled: false
+    token_env: FORGE_TELEGRAM_TOKEN
+    api_base_url: https://api.telegram.org
+    poll_timeout_s: 30
+    # Only these chat ids reach the model. Empty allows nobody.
+    allowed_chat_ids: []
+    # Download inbound photos (and images sent as files) so the model can
+    # view them with the analyze_image tool. Needs vision.enabled plus the
+    # 'filesystem' tool level; while on, the download dir is an implicit
+    # readable root (no readable_dirs entry needed). Default off.
+    attachments:
+      enabled: false
+      # Downloads land here under generated names (gitignored runtime output).
+      dir: './attachments'
+      # Refuse Telegram files larger than this (default 10 MiB, matching
+      # vision.max_image_bytes so anything saved is also analyzable).
+      max_file_bytes: 10485760
+      # Downloads older than this are pruned whenever a new one is saved.
+      retention_days: 7
+
+# --- Scheduler --------------------------------------------------------------------
+# Unattended agent turns on a cron schedule — the thing that makes Forge an
+# assistant. Each job runs the normal permission-gated pipeline (identity,
+# memories, RAG, tools) and its output can be delivered to a channel. Jobs run
+# strictly one at a time (single-GPU box); overlapping fires are skipped and
+# logged to scheduler_runs in tools.db. Default: off, no jobs.
+scheduler:
+  enabled: false
+  jobs: []
+  # Example:
+  # jobs:
+  #   - name: morning-briefing
+  #     cron: "0 8 * * *"          # minute hour day month weekday
+  #     prompt: "Good morning! Search the web for today's top tech news and give me a short briefing."
+  #     channel: telegram           # or 'none' (output still lands in messages.db)
+  #     chat_id: "123456789"

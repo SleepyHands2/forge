@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>forge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="login-gate" class="login-gate">
+    <div class="login-box">
+      <span class="wordmark-name" style="font-size:32px">forge</span>
+      <span class="wordmark-tag smallcaps" style="margin-top:8px">memory</span>
+      <input id="login-token" type="password" class="field-input" placeholder="Auth token" style="margin-top:24px;width:320px;text-align:center">
+      <button id="login-btn" class="btn btn-primary" style="margin-top:12px;width:320px;padding:10px">Connect</button>
+      <span id="login-error" style="margin-top:8px;font-size:12px;color:var(--err);display:none"></span>
+    </div>
+  </div>
+
+  <div id="app" class="shell" style="display:none">
+    <header class="shell-header">
+      <div class="wordmark">
+        <span class="wordmark-name">forge</span>
+        <span class="wordmark-tag smallcaps">memory</span>
+      </div>
+      <div style="flex:1"></div>
+      <nav class="shell-nav">
+        <button class="tab-btn active" data-tab="chat">Chat</button>
+        <button class="tab-btn" data-tab="memory">Memory</button>
+        <button class="tab-btn" data-tab="docs">Docs</button>
+        <button class="tab-btn" data-tab="activity">Activity</button>
+        <button class="tab-btn" data-tab="settings">Settings</button>
+      </nav>
+      <div style="flex:1;display:flex;justify-content:flex-end;align-items:center;gap:14px">
+        <div id="status-pill" class="status-pill">
+          <span class="dot warn"></span>
+          <span class="label">connecting</span>
+        </div>
+      </div>
+    </header>
+    <main class="shell-main">
+      <div id="tab-chat" class="tab-content active"></div>
+      <div id="tab-memory" class="tab-content"></div>
+      <div id="tab-docs" class="tab-content"></div>
+      <div id="tab-activity" class="tab-content"></div>
+      <div id="tab-settings" class="tab-content"></div>
+    </main>
+  </div>
+
+  <script type="module" src="/views/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,80 @@
+{
+  "mode": "fts",
+  "dataset": "eval/data/longmemeval_s_cleaned.json",
+  "topK": 10,
+  "totalEntries": 500,
+  "totalHits": 495,
+  "hitRate": 0.99,
+  "mrr": 0.9166603174603175,
+  "elapsed": 6.4,
+  "byType": {
+    "multi-session": {
+      "total": 133,
+      "hits": 132,
+      "hitRate": 0.9924812030075187,
+      "mrr": 0.9429824561403508
+    },
+    "temporal-reasoning": {
+      "total": 133,
+      "hits": 131,
+      "hitRate": 0.9849624060150376,
+      "mrr": 0.8646795560329396
+    },
+    "knowledge-update": {
+      "total": 78,
+      "hits": 78,
+      "hitRate": 1,
+      "mrr": 0.9807692307692307
+    },
+    "single-session-user": {
+      "total": 70,
+      "hits": 70,
+      "hitRate": 1,
+      "mrr": 0.934761904761905
+    },
+    "single-session-assistant": {
+      "total": 56,
+      "hits": 56,
+      "hitRate": 1,
+      "mrr": 1
+    },
+    "single-session-preference": {
+      "total": 30,
+      "hits": 28,
+      "hitRate": 0.9333333333333333,
+      "mrr": 0.6659259259259259
+    }
+  },
+  "failures": [
+    {
+      "id": "75832dbd",
+      "type": "single-session-preference",
+      "question": "Can you recommend some recent publications or conferences that I might find interesting?",
+      "expected": "The user would prefer suggestions related to recent research papers, articles, or conferences that focus on artificial intelligence in healthcare, particularly those that involve deep learning for medical image analysis. They would not be interested in general AI topics or those unrelated to healthcare."
+    },
+    {
+      "id": "06f04340",
+      "type": "single-session-preference",
+      "question": "What should I serve for dinner this weekend with my homegrown ingredients?",
+      "expected": "The user would prefer dinner suggestions that incorporate their homegrown cherry tomatoes and herbs like basil and mint, highlighting recipes that showcase their garden produce. They might not prefer suggestions that do not utilize these specific ingredients or do not emphasize the use of homegrown elements."
+    },
+    {
+      "id": "8e91e7d9",
+      "type": "multi-session",
+      "question": "What is the total number of siblings I have?",
+      "expected": "4"
+    },
+    {
+      "id": "gpt4_4929293b",
+      "type": "temporal-reasoning",
+      "question": "What was the the life event of one of my relatives that I participated in a week ago?",
+      "expected": "my cousin's wedding"
+    },
+    {
+      "id": "gpt4_8279ba03",
+      "type": "temporal-reasoning",
+      "question": "What kitchen appliance did I buy 10 days ago?",
+      "expected": "a smoker"
+    }
+  ]
+}

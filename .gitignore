@@ -1,0 +1,54 @@
+# Dependencies & build
+node_modules/
+dist/
+
+# Databases (runtime state)
+*.db
+*.db-wal
+*.db-shm
+
+# Environment & secrets
+.env
+.env.*
+forge.config.local.yaml
+*.pem
+*.key
+credentials.json
+
+# Identity (personal system prompts)
+identity/
+
+# Eval dataset (not redistributable)
+eval/data/
+
+# Eval results (run it yourself)
+eval/results-*.json
+eval/results.json
+
+# Logs and local Codex/project notes
+*.log
+logs/
+
+# Generated images (runtime output)
+images/
+
+# Downloaded channel attachments (runtime output)
+attachments/
+
+# Scheduled local backups (runtime output)
+backups/
+
+# Local run notes
+RUNNING_FORGE.md
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Claude Code session data
+.claude/
+
+# Backups
+backup(dirty)/
